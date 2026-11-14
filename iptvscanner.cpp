@@ -22,6 +22,9 @@
 #include <iostream>
 using namespace std;
 
+pcap_setnonblock(device, 1, errBuf);
+pcap_set_immediate_mode(device, 1);
+
 char nicname[1024] = {0};
 int iptvscan(unsigned int ip)
 
