@@ -3,7 +3,7 @@ name: Build for HS8145X6 (Cortex-A9 armv7hf single cpp)
 on:
   push:
     branches: [ main ]
-  tags:
+    tags:
     - 'v*'
   pull_request:
     branches: [ main ]
