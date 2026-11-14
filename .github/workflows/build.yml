@@ -1,32 +1,42 @@
-# This is a basic workflow that is manually triggered
+name: Build HS8145X6 (Cortex-A9 armv7-hf)
 
-name: Manual workflow
-
-# Controls when the action will run. Workflow runs when manually triggered using the UI
-# or API.
 on:
-  workflow_dispatch:
-    # Inputs the workflow accepts.
-    inputs:
-      name:
-        # Friendly description to be shown in the UI instead of 'name'
-        description: 'Person to greet'
-        # Default value if no value is explicitly provided
-        default: 'World'
-        # Input has to be provided for the workflow to run
-        required: true
-        # The data type of the input
-        type: string
+  push:
+    branches: [ main ]
+  tags:
+    - 'v*'
+  pull_request:
+    branches: [ main ]
 
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
-  # This workflow contains a single job called "greet"
-  greet:
-    # The type of runner that the job will run on
+  build:
     runs-on: ubuntu-latest
-
-    # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
-    # Runs a single command using the runners shell
-    - name: Send greeting
-      run: echo "Hello ${{ inputs.name }}"
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install armhf cross compiler
+        run: |
+          sudo apt update
+          sudo apt install -y g++-arm-linux-gnueabihf libc6-dev-armhf-cross
+
+      - name: Compile (单cpp文件 main.cpp)
+        run: |
+          arm-linux-gnueabihf-g++ \
+            -mcpu=cortex-a9 \
+            -mfpu=neon-vfpv3 \
+            -mfloat-abi=hard \
+            -O2 -std=c++17 -static \
+            main.cpp -o hs8145x6_app
+
+      - name: Upload 产物（Actions下载）
+        uses: actions/upload-artifact@v4
+        with:
+          name: hs8145x6_app
+          path: hs8145x6_app
+
+      - name: Create Release & Upload Binary（仅tag触发）
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: hs8145x6_app
