@@ -1,4 +1,4 @@
-name: Build HS8145X6 (Cortex-A9 armv7-hf)
+name: Build for HS8145X6 (Cortex-A9 armv7hf single cpp)
 
 on:
   push:
@@ -12,30 +12,30 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Install armhf cross compiler
+      - name: Install cross compiler armhf
         run: |
           sudo apt update
           sudo apt install -y g++-arm-linux-gnueabihf libc6-dev-armhf-cross
 
-      - name: Compile (单cpp文件 main.cpp)
+      - name: Compile main.cpp
         run: |
           arm-linux-gnueabihf-g++ \
             -mcpu=cortex-a9 \
             -mfpu=neon-vfpv3 \
             -mfloat-abi=hard \
             -O2 -std=c++17 -static \
-            iptvscanner.cpp -o hs8145x6_app
+            main.cpp -o hs8145x6_app
 
-      - name: Upload 产物（Actions下载）
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: hs8145x6_app
           path: hs8145x6_app
 
-      - name: Create Release & Upload Binary（仅tag触发）
+      - name: Release when tag v* pushed
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
