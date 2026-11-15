@@ -21,7 +21,7 @@ jobs:
           sudo apt install -y g++-arm-linux-gnueabihf flex bison wget tar
           ls -la
 
-      - name: Download libpcap 1.10.4 release
+      - name: Download & build libpcap 1.10.4
         run: |
           wget https://www.tcpdump.org/release/libpcap-1.10.4.tar.gz
           tar -zxf libpcap-1.10.4.tar.gz
@@ -54,12 +54,13 @@ jobs:
             -mcpu=cortex-a9 \
             -mfpu=neon-vfpv3 \
             -mfloat-abi=hard \
-            -O2 -std=c++17 -static \
+            -O2 -std=c++17 \
             -I./libpcap-1.10.4/install/include \
             -L./libpcap-1.10.4/install/lib \
-            main.cpp -o iptvscanner -lpcap -lpthread
+            main.cpp -o iptvscanner \
+            -lpcap -lpthread -lm -static
           ls -la
-          test -f iptvscanner || exit 1
+          test -f iptvscanner || { echo ">>>> 编译成功但是没有生成 iptvscanner !"; exit 1; }
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
