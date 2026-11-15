@@ -1,4 +1,4 @@
-name: Build HS8145X6 iptvscanner (ARMv7 integer-only / static)
+name: Build iptvscanner (ARMv7 / MIPS MT7621A, static)
 
 # 缺这段 GITHUB_TOKEN 只读，Release 会是空的
 permissions:
@@ -24,20 +24,24 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Install armel toolchain（软浮点/整数版）
+      - name: Install toolchains（ARMv7 armel + MIPS mipsel）
         run: |
           sudo apt-get update
-          sudo apt-get install -y g++-arm-linux-gnueabi flex bison wget
+          sudo apt-get install -y \
+            g++-arm-linux-gnueabi \
+            g++-mipsel-linux-gnu \
+            flex bison wget
           arm-linux-gnueabi-g++ --version | head -1
+          mipsel-linux-gnu-g++ --version | head -1
 
       - name: Fetch libpcap 1.10.4 source
         run: |
           wget -q https://www.tcpdump.org/release/libpcap-1.10.4.tar.gz
           tar -zxf libpcap-1.10.4.tar.gz
-
-      - name: Build libpcap static (soft-float)
+- name: Build libpcap static (ARMv7, soft-float)
         run: |
-          cd libpcap-1.10.4
+          cp -a libpcap-1.10.4 libpcap-arm
+          cd libpcap-arm
           ./configure \
             --host=arm-linux-gnueabi \
             --build=x86_64-pc-linux-gnu \
@@ -55,26 +59,94 @@ jobs:
           make install
           test -f install/lib/libpcap.a
 
-      - name: Compile iptvscanner（纯整数指令）
+      - name: Build libpcap static (MIPS mipsel, mips32r2)
+        run: |
+          cp -a libpcap-1.10.4 libpcap-mips
+          cd libpcap-mips
+          ./configure \
+            --host=mipsel-linux-gnu \
+            --build=x86_64-pc-linux-gnu \
+            --disable-shared \
+            --disable-usb \
+            --disable-bluetooth \
+--disable-netmap \
+            --disable-dbus \
+            --disable-rdma \
+            --without-libnl \
+            --prefix=$PWD/install \
+            CC=mipsel-linux-gnu-gcc \
+            CFLAGS="-O2 -march=mips32r2"
+          make -j$(nproc)
+          make install
+          test -f install/lib/libpcap.a
+
+      - name: Build libpcap static (x86_64 原生)
+        run: |
+          cp -a libpcap-1.10.4 libpcap-x64
+          cd libpcap-x64
+          ./configure \
+            --disable-shared \
+            --disable-usb \
+            --disable-bluetooth \
+            --disable-netmap \
+            --disable-dbus \
+            --disable-rdma \
+            --without-libnl \
+            --prefix=$PWD/install
+          make -j$(nproc)
+          make install
+          test -f install/lib/libpcap.a
+
+      - name: Compile ARMv7（HS8145X6 / Cortex-A9，纯整数）
         run: |
           arm-linux-gnueabi-g++ \
             -march=armv7-a \
             -mfloat-abi=soft \
             -O2 -std=c++17 \
-            -I./libpcap-1.10.4/install/include \
-            -L./libpcap-1.10.4/install/lib \
-            iptvscanner.cpp -o iptvscanner \
+-I./libpcap-arm/install/include \
+            -L./libpcap-arm/install/lib \
+            iptvscanner.cpp -o iptvscanner-armv7 \
             -lpcap -lpthread -lm -static
 
-          ls -lh iptvscanner
-          file iptvscanner
-          file iptvscanner | grep -q "statically linked" || { echo "不是静态链接，会报 not found"; exit 1; }
+          file iptvscanner-armv7
+          file iptvscanner-armv7 | grep -q "statically linked" || { echo "armv7 不是静态链接"; exit 1; }
 
-      - name: Upload artifact
+      - name: Compile MIPS（MT7621A，mips32r2 小端）
+        run: |
+          mipsel-linux-gnu-g++ \
+            -march=mips32r2 \
+            -mtune=24kc \
+            -O2 -std=c++17 \
+            -I./libpcap-mips/install/include \
+            -L./libpcap-mips/install/lib \
+            iptvscanner.cpp -o iptvscanner-mipsel \
+            -lpcap -lpthread -lm -static
+
+          file iptvscanner-mipsel
+          file iptvscanner-mipsel | grep -q "statically linked" || { echo "mipsel 不是静态链接"; exit 1; }
+
+      - name: Compile x86_64（软路由 / OpenWrt x86）
+        run: |
+          g++ \
+            -O2 -std=c++17 \
+            -I./libpcap-x64/install/include \
+            -L./libpcap-x64/install/lib \
+iptvscanner.cpp -o iptvscanner-x86_64 \
+            -lpcap -lpthread -lm -static
+
+          file iptvscanner-x86_64
+          file iptvscanner-x86_64 | grep -q "statically linked" || { echo "x86_64 不是静态链接"; exit 1; }
+
+          ls -lh iptvscanner-armv7 iptvscanner-mipsel iptvscanner-x86_64
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: iptvscanner-armv7-static
-          path: iptvscanner
+          name: iptvscanner-static
+          path: |
+            iptvscanner-armv7
+            iptvscanner-mipsel
+            iptvscanner-x86_64
 
       # 统一的“本次要不要发 Release”判断：push tag，或手动填了 release_tag
       - name: Resolve release tag
@@ -91,8 +163,8 @@ jobs:
       - name: 发布前确认（看日志用）
         if: steps.tag.outputs.tag != ''
         run: |
-          ls -lh iptvscanner
-          sha256sum iptvscanner
+          ls -lh iptvscanner-armv7 iptvscanner-mipsel iptvscanner-x86_64
+          sha256sum iptvscanner-armv7 iptvscanner-mipsel iptvscanner-x86_64
 
       - name: Create Release
         if: steps.tag.outputs.tag != ''
@@ -101,15 +173,20 @@ jobs:
           tag_name: ${{ steps.tag.outputs.tag }}
           token: ${{ secrets.GITHUB_TOKEN }}
           files: |
-            iptvscanner
+            iptvscanner-armv7
+            iptvscanner-mipsel
+            iptvscanner-x86_64
           fail_on_unmatched_files: true
           name: Release ${{ steps.tag.outputs.tag }}
           body: |
-            iptvscanner for HS8145X6 (Cortex-A9 / ARMv7)
+            iptvscanner（IPTV 组播扫描），两个平台，都是 fully static
 
-            - 纯整数指令（soft-float，无 VFP / NEON 依赖，不会 Illegal instruction）
-            - fully static，不依赖路由器任何 so，不会 not found
+            - iptvscanner-armv7  : ARMv7，纯整数指令（HS8145X6 / Cortex-A9 等）
+            - iptvscanner-mipsel : MIPS32r2 小端（MT7621A / MT7620 等 MTK 路由器）
+            - iptvscanner-x86_64 : x86_64 软路由 / OpenWrt x86 平台
 
-            用法：./iptvscanner 239.3.1.1 239.3.1.254（需 root）
+            不依赖设备上的任何 so，不会 Illegal instruction / not found
+
+            用法：./iptvscanner-armv7 239.3.1.1 239.3.1.254（需 root）
           draft: false
           prerelease: false
