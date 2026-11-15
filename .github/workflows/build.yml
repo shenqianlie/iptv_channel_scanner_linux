@@ -18,7 +18,7 @@ jobs:
       - name: Install cross compiler & build tools
         run: |
           sudo apt update
-          sudo apt install -y g++-arm-linux-gnueabihf flex bison wget tar
+          sudo apt install -y g++-arm-linux-gnueabihf flex bison wget tar binutils-arm-linux-gnueabihf
           ls -la
 
       - name: Download & build libpcap 1.10.4 static
@@ -61,9 +61,9 @@ jobs:
             -lpcap -lpthread -lm -static
           ls -la
           test -f iptvscanner || { echo ">>>> 编译成功但是没有生成 iptvscanner !"; exit 1; }
-          # 打印二进制信息，方便核对
+          # 检查文件类型，用本机file
+          file iptvscanner
           arm-linux-gnueabihf-readelf -l iptvscanner || true
-          arm-linux-gnueabihf-file iptvscanner
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -83,6 +83,6 @@ jobs:
             iptvscanner for HS8145X6
             Cortex-A9, vfpv3 (NO NEON)
             ✅ Fully static build (glibc-static)
-            ✅ No dependency on router libpcap / musl ld
+            ✅ No dependency on router libpcap
           draft: false
           prerelease: false
