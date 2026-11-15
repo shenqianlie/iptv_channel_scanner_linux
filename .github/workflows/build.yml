@@ -1,4 +1,4 @@
-name: Build HS8145X6 iptvscanner (Cortex-A9 armv7hf, NO NEON)
+name: Build HS8145X6 iptvscanner STATIC (musl safe)
 
 on:
   push:
@@ -21,7 +21,7 @@ jobs:
           sudo apt install -y g++-arm-linux-gnueabihf flex bison wget tar
           ls -la
 
-      - name: Download & build libpcap 1.10.4
+      - name: Download & build libpcap 1.10.4 static
         run: |
           wget https://www.tcpdump.org/release/libpcap-1.10.4.tar.gz
           tar -zxf libpcap-1.10.4.tar.gz
@@ -46,7 +46,7 @@ jobs:
           cd ..
           ls -la
 
-      - name: Compile main.cpp -> iptvscanner (vfpv3, no neon)
+      - name: Compile main.cpp -> iptvscanner FULL STATIC
         run: |
           ls -la
           test -f main.cpp || exit 1
@@ -58,14 +58,17 @@ jobs:
             -I./libpcap-1.10.4/install/include \
             -L./libpcap-1.10.4/install/lib \
             main.cpp -o iptvscanner \
-            -lpcap -lpthread -lm
+            -lpcap -lpthread -lm -static
           ls -la
           test -f iptvscanner || { echo ">>>> 编译成功但是没有生成 iptvscanner !"; exit 1; }
+          # 打印二进制信息，方便核对
+          arm-linux-gnueabihf-readelf -l iptvscanner || true
+          arm-linux-gnueabihf-file iptvscanner
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: iptvscanner
+          name: iptvscanner-static
           path: iptvscanner
 
       - name: Create Release
@@ -79,6 +82,7 @@ jobs:
           body: |
             iptvscanner for HS8145X6
             Cortex-A9, vfpv3 (NO NEON)
-            Dynamic link (depends on libpcap on OpenWrt)
+            ✅ Fully static build (glibc-static)
+            ✅ No dependency on router libpcap / musl ld
           draft: false
           prerelease: false
