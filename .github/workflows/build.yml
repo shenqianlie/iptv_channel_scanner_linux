@@ -1,4 +1,4 @@
-name: Build HS8145X6 (Cortex-A9 armv7hf single cpp)
+name: Build HS8145X6 (Cortex-A9 armv7hf single cpp + libpcap static)
 
 on:
   push:
@@ -14,19 +14,36 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Install cross compiler + armhf libpcap
+      - name: Install cross compiler & build tools
         run: |
           sudo apt update
-          sudo dpkg --add-architecture armhf
-          sudo apt install -y g++-arm-linux-gnueabihf libc6-dev-armhf-cross libpcap-dev:armhf
+          sudo apt install -y g++-arm-linux-gnueabihf autoconf automake libtool git
 
-      - name: Compile main.cpp (link -lpcap)
+      - name: Build static libpcap for armhf
+        run: |
+          git clone https://github.com/the-tcpdump-group/libpcap.git
+          cd libpcap
+          ./autogen.sh
+          ./configure \
+            --host=arm-linux-gnueabihf \
+            --build=x86_64-pc-linux-gnu \
+            --disable-shared \
+            --enable-static \
+            --prefix=${PWD}/install \
+            CC=arm-linux-gnueabihf-gcc
+          make -j$(nproc)
+          make install
+          cd ..
+
+      - name: Compile main.cpp, link static libpcap
         run: |
           arm-linux-gnueabihf-g++ \
             -mcpu=cortex-a9 \
             -mfpu=neon-vfpv3 \
             -mfloat-abi=hard \
             -O2 -std=c++17 -static \
+            -I./libpcap/install/include \
+            -L./libpcap/install/lib \
             main.cpp -o hs8145x6_app -lpcap
 
       - name: Upload artifact
