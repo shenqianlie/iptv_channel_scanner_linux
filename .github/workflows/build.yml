@@ -5,7 +5,7 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
-  workflow_dispatch: # ✅ 重点！网页上出现【Run workflow】手动按钮
+  workflow_dispatch:
 
 jobs:
   build:
@@ -14,21 +14,20 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Install cross compiler armhf
+      - name: Install cross compiler + armhf libpcap
         run: |
           sudo apt update
-          sudo apt install -y g++-arm-linux-gnueabihf libc6-dev-armhf-cross
+          sudo dpkg --add-architecture armhf
+          sudo apt install -y g++-arm-linux-gnueabihf libc6-dev-armhf-cross libpcap-dev:armhf
 
-      - name: Compile main.cpp
+      - name: Compile main.cpp (link -lpcap)
         run: |
           arm-linux-gnueabihf-g++ \
             -mcpu=cortex-a9 \
             -mfpu=neon-vfpv3 \
             -mfloat-abi=hard \
             -O2 -std=c++17 -static \
-            -lpcap \
-            -g \
-            main.cpp -o hs8145x6_app
+            main.cpp -o hs8145x6_app -lpcap
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
