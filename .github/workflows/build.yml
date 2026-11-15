@@ -14,26 +14,32 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Install cross compiler & cmake
+      - name: Install cross compiler & build tools
         run: |
           sudo apt update
-          sudo apt install -y g++-arm-linux-gnueabihf cmake wget tar
+          sudo apt install -y g++-arm-linux-gnueabihf flex bison wget tar
 
-      - name: Download & build libpcap 1.10.4 static armhf
+      - name: Download libpcap 1.10.4 release (has configure)
         run: |
           wget https://www.tcpdump.org/release/libpcap-1.10.4.tar.gz
           tar -zxf libpcap-1.10.4.tar.gz
           cd libpcap-1.10.4
-          mkdir build && cd build
-          cmake .. \
-            -DCMAKE_C_COMPILER=arm-linux-gnueabihf-gcc \
-            -DCMAKE_INSTALL_PREFIX=${PWD}/install \
-            -DBUILD_SHARED_LIBS=OFF \
-            -DENABLE_REMOTE=OFF \
-            -DDISABLE_DBUS=ON
+          ./configure \
+            --host=arm-linux-gnueabihf \
+            --build=x86_64-pc-linux-gnu \
+            --disable-shared \
+            --enable-static \
+            --disable-usb \
+            --disable-bluetooth \
+            --disable-netmap \
+            --disable-dbus \
+            --disable-rdma \
+            --without-libnl \
+            --prefix=${PWD}/install \
+            CC=arm-linux-gnueabihf-gcc
           make -j$(nproc)
           make install
-          cd ../../
+          cd ..
 
       - name: Compile iptvscanner.cpp
         run: |
@@ -42,8 +48,8 @@ jobs:
             -mfpu=neon-vfpv3 \
             -mfloat-abi=hard \
             -O2 -std=c++17 -static \
-            -I./libpcap-1.10.4/build/install/include \
-            -L./libpcap-1.10.4/build/install/lib \
+            -I./libpcap-1.10.4/install/include \
+            -L./libpcap-1.10.4/install/lib \
             iptvscanner.cpp -o iptvscanner -lpcap
 
       - name: Upload artifact（Actions下载）
