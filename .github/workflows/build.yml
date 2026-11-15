@@ -20,9 +20,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: install-toolchain
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends g++-arm-linux-gnueabi flex bison wget
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends g++-arm-linux-gnueabi g++-aarch64-linux-gnu flex bison wget
       - name: build
-        run: '[ -f build.sh ] || { echo "repo root missing build.sh"; ls -la; exit 1; }; TARGETS="armv7 x86_64" bash build.sh'
+        run: '[ -f build.sh ] || { echo "repo root missing build.sh"; ls -la; exit 1; }; TARGETS="armv7 x86_64 a55" bash build.sh'
       - uses: actions/upload-artifact@v4
         with:
           name: arm-x86
