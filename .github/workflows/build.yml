@@ -1,6 +1,6 @@
-name: Build HS8145X6 iptvscanner (g++ / Cortex-A9 / static)
+name: Build HS8145X6 iptvscanner (ARMv7 integer-only / static)
 
-# 关键：不写这段，GITHUB_TOKEN 默认只读，Release 能建但附件上传不上去
+# 缺这段 GITHUB_TOKEN 只读，Release 会是空的
 permissions:
   contents: write
 
@@ -19,15 +19,10 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Install armhf + armel toolchains
+      - name: Install armel toolchain（软浮点/整数版）
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            g++-arm-linux-gnueabihf \
-            g++-arm-linux-gnueabi \
-            binutils-arm-linux-gnueabihf \
-            flex bison wget
-          arm-linux-gnueabihf-g++ --version | head -1
+          sudo apt-get install -y g++-arm-linux-gnueabi flex bison wget
           arm-linux-gnueabi-g++ --version | head -1
 
       - name: Fetch libpcap 1.10.4 source
@@ -35,31 +30,9 @@ jobs:
           wget -q https://www.tcpdump.org/release/libpcap-1.10.4.tar.gz
           tar -zxf libpcap-1.10.4.tar.gz
 
-      - name: Build libpcap static (hard-float, vfpv3-d16)
+      - name: Build libpcap static (soft-float)
         run: |
-          cp -a libpcap-1.10.4 libpcap-hf
-          cd libpcap-hf
-          ./configure \
-            --host=arm-linux-gnueabihf \
-            --build=x86_64-pc-linux-gnu \
-            --disable-shared \
-            --disable-usb \
-            --disable-bluetooth \
-            --disable-netmap \
-            --disable-dbus \
-            --disable-rdma \
-            --without-libnl \
-            --prefix=$PWD/install \
-            CC=arm-linux-gnueabihf-gcc \
-            CFLAGS="-O2 -mcpu=cortex-a9 -mfpu=vfpv3-d16 -mfloat-abi=hard"
-          make -j$(nproc)
-          make install
-          test -f install/lib/libpcap.a
-
-      - name: Build libpcap static (soft-float, armv7-a)
-        run: |
-          cp -a libpcap-1.10.4 libpcap-soft
-          cd libpcap-soft
+          cd libpcap-1.10.4
           ./configure \
             --host=arm-linux-gnueabi \
             --build=x86_64-pc-linux-gnu \
@@ -77,52 +50,33 @@ jobs:
           make install
           test -f install/lib/libpcap.a
 
-      - name: Compile iptvscanner (两个版本一起产出)
+      - name: Compile iptvscanner（纯整数指令）
         run: |
-          # 1) 硬浮点版：vfpv3-d16 + hard，标准 OpenWrt / 华为 armhf 固件
-          arm-linux-gnueabihf-g++ \
-            -mcpu=cortex-a9 \
-            -mfpu=vfpv3-d16 \
-            -mfloat-abi=hard \
-            -O2 -std=c++17 \
-            -I./libpcap-hf/install/include \
-            -L./libpcap-hf/install/lib \
-            iptvscanner.cpp -o iptvscanner_hf \
-            -lpcap -lpthread -lm -static
-
-          # 2) 软浮点版：纯整数代码，任何 ARMv7 设备都能跑（兜底）
           arm-linux-gnueabi-g++ \
             -march=armv7-a \
             -mfloat-abi=soft \
             -O2 -std=c++17 \
-            -I./libpcap-soft/install/include \
-            -L./libpcap-soft/install/lib \
-            iptvscanner.cpp -o iptvscanner_soft \
+            -I./libpcap-1.10.4/install/include \
+            -L./libpcap-1.10.4/install/lib \
+            iptvscanner.cpp -o iptvscanner \
             -lpcap -lpthread -lm -static
 
-          ls -lh iptvscanner_hf iptvscanner_soft
-          file iptvscanner_hf iptvscanner_soft
+          ls -lh iptvscanner
+          file iptvscanner
+          file iptvscanner | grep -q "statically linked" || { echo "不是静态链接，会报 not found"; exit 1; }
 
-          # 必须是真的静态链接，否则直接判失败，杜绝 not found
-          file iptvscanner_hf | grep -q "statically linked" || { echo "iptvscanner_hf 不是静态链接!"; exit 1; }
-          file iptvscanner_soft | grep -q "statically linked" || { echo "iptvscanner_soft 不是静态链接!"; exit 1; }
-
-          arm-linux-gnueabihf-readelf -A iptvscanner_hf | grep -E "CPU_arch|FP_arch|VFP_args"
-
-      - name: Upload artifacts
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: iptvscanner-armv7
-          path: |
-            iptvscanner_hf
-            iptvscanner_soft
+          name: iptvscanner-armv7-static
+          path: iptvscanner
 
-      - name: 发布前确认文件存在（看日志用）
+      - name: 发布前确认（看日志用）
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           echo "tag = ${{ github.ref_name }}"
-          ls -lh iptvscanner_hf iptvscanner_soft
-          sha256sum iptvscanner_hf iptvscanner_soft
+          ls -lh iptvscanner
+          sha256sum iptvscanner
 
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/v')
@@ -130,16 +84,15 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           files: |
-            iptvscanner_hf
-            iptvscanner_soft
+            iptvscanner
           fail_on_unmatched_files: true
           name: Release ${{ github.ref_name }}
           body: |
-            iptvscanner for HS8145X6 (Cortex-A9, ARMv7)
+            iptvscanner for HS8145X6 (Cortex-A9 / ARMv7)
 
-            - iptvscanner_hf : vfpv3-d16 硬浮点，标准 OpenWrt 固件用这个
-            - iptvscanner_soft : 软浮点纯整数，若上面那个报 Illegal instruction 用这个
+            - 纯整数指令（soft-float，无 VFP / NEON 依赖，不会 Illegal instruction）
+            - fully static，不依赖路由器任何 so，不会 not found
 
-            两个都是 fully static，不依赖路由器任何 so。
+            用法：./iptvscanner 239.3.1.1 239.3.1.254（需 root）
           draft: false
           prerelease: false
