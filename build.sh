@@ -2,13 +2,13 @@
 # 一键构建 iptvscanner 三个平台版本
 #   iptvscanner-armv7   ARMv7  纯整数（HS8145X6 / Cortex-A9）
 #   iptvscanner-mipsel  MIPS32r2 小端（MT7621A / MT7620）
-#   iptvscanner-x86_64  x86-64（软路由 / OpenWrt x86）
-#   iptvscanner-a55     ARMv8.2-A aarch64（Cortex-A55）
+#   iptvscanner.exe     Windows x86_64（需安装 Npcap）
+#   iptvscanner-aarch64 ARMv8-A aarch64（A53/A55/A72 通用）
 # 用法：bash build.sh
 set -euo pipefail
 
 SRC="${SRC:-iptvscanner.cpp}"
-TARGETS="${TARGETS:-all}"   # all | armv7 | mipsel | x86_64（可空格分隔多选）
+TARGETS="${TARGETS:-all}"   # all | armv7 | mipsel | aarch64 | win（可空格分隔多选）
 J="$(nproc 2>/dev/null || echo 2)"
 VER=1.10.4
 
@@ -21,6 +21,10 @@ has() {
 
 check_static() {
   file "$1" | grep -q "statically linked" || { echo "!! $1 不是静态链接，上机必报 not found"; exit 1; }
+}
+
+check_pe() {
+  file "$1" | grep -q "PE32+" || { echo "!! $1 不是 Windows PE 程序"; exit 1; }
 }
 
 # ---------- 准备 libpcap 源码 ----------
@@ -101,43 +105,30 @@ mipsel-linux-gnu-g++ \
 check_static iptvscanner-mipsel
 fi
 
-# ---------- x86_64：原生 ----------
-if has x86_64; then
-echo "== 编译 libpcap (x86_64) =="
-rm -rf libpcap-x64
-cp -a "libpcap-$VER" libpcap-x64
-(
-  cd libpcap-x64
-  ./configure \
-    --disable-shared \
-    --disable-usb \
-    --disable-bluetooth \
-    --disable-netmap \
-    --disable-dbus \
-    --disable-rdma \
-    --without-libnl \
-    --prefix="$PWD/install"
-  make -j"$J"
-  make install
-)
-
-echo "== 编译 iptvscanner-x86_64 =="
-g++ \
+# ---------- Windows x86_64（mingw + Npcap SDK） ----------
+if has win; then
+echo "== 编译 iptvscanner.exe (Windows x86_64) =="
+if [ ! -d npcap-sdk ]; then
+  [ -f npcap-sdk.zip ] || wget -q -O npcap-sdk.zip https://npcap.com/dist/npcap-sdk-1.13.zip
+  rm -rf npcap-sdk && mkdir -p npcap-sdk
+  ( cd npcap-sdk && unzip -q ../npcap-sdk.zip )
+fi
+x86_64-w64-mingw32-g++ \
   -O2 -std=c++17 \
-  -Ilibpcap-x64/install/include \
-  -Llibpcap-x64/install/lib \
-  "$SRC" -o iptvscanner-x86_64 \
-  -lpcap -lpthread -lm -static
-check_static iptvscanner-x86_64
+  -D_WIN32_WINNT=0x0600 \
+  -Inpcap-sdk/Include \
+  "$SRC" -o iptvscanner.exe \
+  -Lnpcap-sdk/Lib/x64 -lwpcap -lPacket -lws2_32 -static
+check_pe iptvscanner.exe
 fi
 
-# ---------- ARMv8.2-A aarch64：Cortex-A55 ----------
-if has a55; then
+# ---------- ARMv8-A aarch64：A53/A55/A72 通用 ----------
+if has aarch64; then
 echo "== 编译 libpcap (aarch64) =="
-rm -rf libpcap-a55
-cp -a "libpcap-$VER" libpcap-a55
+rm -rf libpcap-a64
+cp -a "libpcap-$VER" libpcap-a64
 (
-  cd libpcap-a55
+  cd libpcap-a64
   ./configure \
     --host=aarch64-linux-gnu \
     --build=x86_64-pc-linux-gnu \
@@ -150,26 +141,26 @@ cp -a "libpcap-$VER" libpcap-a55
     --without-libnl \
     --prefix="$PWD/install" \
     CC=aarch64-linux-gnu-gcc \
-    CFLAGS="-O2 -mcpu=cortex-a55"
+    CFLAGS="-O2 -march=armv8-a"
   make -j"$J"
   make install
 )
 
-echo "== 编译 iptvscanner-a55 =="
+echo "== 编译 iptvscanner-aarch64 =="
 aarch64-linux-gnu-g++ \
-  -mcpu=cortex-a55 \
+  -march=armv8-a \
   -O2 -std=c++17 \
-  -Ilibpcap-a55/install/include \
-  -Llibpcap-a55/install/lib \
-  "$SRC" -o iptvscanner-a55 \
+  -Ilibpcap-a64/install/include \
+  -Llibpcap-a64/install/lib \
+  "$SRC" -o iptvscanner-aarch64 \
   -lpcap -lpthread -lm -static
-check_static iptvscanner-a55
+check_static iptvscanner-aarch64
 fi
 
 # ---------- 汇总 ----------
 echo
 echo "== 产物 =="
-for f in iptvscanner-armv7 iptvscanner-mipsel iptvscanner-x86_64 iptvscanner-a55; do
+for f in iptvscanner-armv7 iptvscanner-mipsel iptvscanner-aarch64 iptvscanner.exe; do
   if [ -f "$f" ]; then
     ls -lh "$f"
     file "$f"
