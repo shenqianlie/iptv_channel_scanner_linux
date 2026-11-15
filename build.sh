@@ -3,6 +3,7 @@
 #   iptvscanner-armv7   ARMv7  纯整数（HS8145X6 / Cortex-A9）
 #   iptvscanner-mipsel  MIPS32r2 小端（MT7621A / MT7620）
 #   iptvscanner-x86_64  x86-64（软路由 / OpenWrt x86）
+#   iptvscanner-a55     ARMv8.2-A aarch64（Cortex-A55）
 # 用法：bash build.sh
 set -euo pipefail
 
@@ -130,10 +131,45 @@ g++ \
 check_static iptvscanner-x86_64
 fi
 
+# ---------- ARMv8.2-A aarch64：Cortex-A55 ----------
+if has a55; then
+echo "== 编译 libpcap (aarch64) =="
+rm -rf libpcap-a55
+cp -a "libpcap-$VER" libpcap-a55
+(
+  cd libpcap-a55
+  ./configure \
+    --host=aarch64-linux-gnu \
+    --build=x86_64-pc-linux-gnu \
+    --disable-shared \
+    --disable-usb \
+    --disable-bluetooth \
+    --disable-netmap \
+    --disable-dbus \
+    --disable-rdma \
+    --without-libnl \
+    --prefix="$PWD/install" \
+    CC=aarch64-linux-gnu-gcc \
+    CFLAGS="-O2 -mcpu=cortex-a55"
+  make -j"$J"
+  make install
+)
+
+echo "== 编译 iptvscanner-a55 =="
+aarch64-linux-gnu-g++ \
+  -mcpu=cortex-a55 \
+  -O2 -std=c++17 \
+  -Ilibpcap-a55/install/include \
+  -Llibpcap-a55/install/lib \
+  "$SRC" -o iptvscanner-a55 \
+  -lpcap -lpthread -lm -static
+check_static iptvscanner-a55
+fi
+
 # ---------- 汇总 ----------
 echo
 echo "== 产物 =="
-for f in iptvscanner-armv7 iptvscanner-mipsel iptvscanner-x86_64; do
+for f in iptvscanner-armv7 iptvscanner-mipsel iptvscanner-x86_64 iptvscanner-a55; do
   if [ -f "$f" ]; then
     ls -lh "$f"
     file "$f"
