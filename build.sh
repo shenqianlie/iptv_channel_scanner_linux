@@ -133,6 +133,10 @@ fi
 # ---------- 汇总 ----------
 echo
 echo "== 产物 =="
-ls -lh iptvscanner-armv7 iptvscanner-mipsel iptvscanner-x86_64 2>/dev/null || true
-file iptvscanner-armv7 iptvscanner-mipsel iptvscanner-x86_64 2>/dev/null || true
-sha256sum iptvscanner-armv7 iptvscanner-mipsel iptvscanner-x86_64 2>/dev/null || true
+for f in iptvscanner-armv7 iptvscanner-mipsel iptvscanner-x86_64; do
+  if [ -f "$f" ]; then
+    ls -lh "$f"
+    file "$f"
+    sha256sum "$f"
+  fi
+done
