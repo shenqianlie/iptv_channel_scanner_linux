@@ -10,102 +10,54 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: '填版本号则发 Release，如 v1.0；留空只编译'
+        description: 'release tag, e.g. v1.0 (empty = build only)'
         default: ''
 
 jobs:
-  # ARMv7 + x86_64：跑最新版 runner（24.04）
+
   build-arm-x86:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: 装 armel 工具链
-        run: |
-          sudo apt-get update
-          for p in g++-arm-linux-gnueabi flex bison wget; do
-            sudo apt-get install -y "$p" || { echo "!! 装不上：$p"; exit 1; }
-          done
-          arm-linux-gnueabi-g++ --version | head -1
-
-      - name: 编译 ARMv7 + x86_64
-        run: |
-          SCRIPT="$(find . -name build.sh -not -path './.git/*' | head -1)"
-          [ -n "$SCRIPT" ] || { echo "仓库里没有 build.sh，请放到仓库根目录"; ls -la; exit 1; }
-          TARGETS="armv7 x86_64" bash "$SCRIPT"
-
+      - name: install-toolchain
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends g++-arm-linux-gnueabi flex bison wget
+      - name: build
+        run: '[ -f build.sh ] || { echo "repo root missing build.sh"; ls -la; exit 1; }; TARGETS="armv7 x86_64" bash build.sh'
       - uses: actions/upload-artifact@v4
         with:
           name: arm-x86
-          path: |
-            iptvscanner-armv7
-iptvscanner-x86_64
+          path: iptvscanner-*
 
-  # MIPS：必须用 22.04（24.04 没有 mipsel 工具链）
   build-mips:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-
-      - name: 装 mipsel 工具链
-        run: |
-          sudo apt-get update
-          for p in g++-mipsel-linux-gnu flex bison wget; do
-            sudo apt-get install -y "$p" || { echo "!! 装不上：$p"; exit 1; }
-          done
-          mipsel-linux-gnu-g++ --version | head -1
-
-      - name: 编译 MIPS
-        run: |
-          SCRIPT="$(find . -name build.sh -not -path './.git/*' | head -1)"
-          [ -n "$SCRIPT" ] || { echo "仓库里没有 build.sh，请放到仓库根目录"; ls -la; exit 1; }
-          TARGETS=mipsel bash "$SCRIPT"
-
+      - name: install-toolchain
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends g++-mipsel-linux-gnu flex bison wget
+      - name: build
+        run: '[ -f build.sh ] || { echo "repo root missing build.sh"; ls -la; exit 1; }; TARGETS=mipsel bash build.sh'
       - uses: actions/upload-artifact@v4
         with:
           name: mips
-          path: iptvscanner-mipsel
+          path: iptvscanner-*
 
-  # 汇总发布
   release:
     needs: [ build-arm-x86, build-mips ]
     runs-on: ubuntu-latest
     steps:
-      - name: 收集所有产物
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
-
-      - name: 确认文件
-        run: |
-          ls -lh dist
-          file dist/*
-
-      - name: 取版本号
+      - name: list
+        run: ls -lh dist && file dist/*
+      - name: tag
         id: tag
-        run: |
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=${{ inputs.release_tag }}" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: 发 Release
+        run: 'TAG="${GITHUB_REF#refs/tags/}"; [[ "${GITHUB_REF}" == refs/tags/v* ]] || TAG="${{ inputs.release_tag }}"; echo "tag=$TAG" >> "$GITHUB_OUTPUT"'
+      - name: release
         if: steps.tag.outputs.tag != ''
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
-          files: |
-            dist/iptvscanner-armv7
-            dist/iptvscanner-mipsel
-            dist/iptvscanner-x86_64
+          files: dist/iptvscanner-*
           fail_on_unmatched_files: true
-          body: |
-            iptvscanner 三平台静态版
-
-            iptvscanner-armv7   ARMv7，HS8145X6 / Cortex-A9
-            iptvscanner-mipsel  MIPS32r2，MT7621A / MT7620
-            iptvscanner-x86_64  x86_64 软路由
-
-            用法：./iptvscanner-xxx 239.3.1.1 239.3.1.254（需 root）
