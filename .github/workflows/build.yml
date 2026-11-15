@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main ]
     tags:
-    - 'v*'
+      - 'v*'
   pull_request:
     branches: [ main ]
 
@@ -27,7 +27,6 @@ jobs:
             -mfpu=neon-vfpv3 \
             -mfloat-abi=hard \
             -O2 -std=c++17 -static \
-            -lpcap \
             main.cpp -o hs8145x6_app
 
       - name: Upload artifact
