@@ -1,24 +1,60 @@
 /*
- * iptvscanner.cpp - IPTV 组播扫描（Cortex-A9 / HS8145X6 适配）
- * 修复：全局作用域误调函数导致的编译错误
+ * iptvscanner.cpp - IPTV 组播扫描
+ * 适配：Linux（ARMv7 / MIPS / x86_64）+ Windows（x86_64，需安装 Npcap）
  */
-#include <stdio.h>
-#include <stdlib.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <unistd.h>
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
 #include <arpa/inet.h>
 #include <net/if.h>
 #include <netinet/in.h>
-#include <string.h>
-#include <pcap.h>
+#include <sys/socket.h>
 #include <netinet/ip.h>
 #include <netinet/udp.h>
+#endif
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <pcap.h>
 #include <iostream>
 
 using namespace std;
 
+#ifdef _WIN32
+#define CLOSE_SOCK closesocket
+#define SLEEP_US(x) Sleep((x) / 1000) /* Windows 的 Sleep 单位是毫秒 */
+#else
+#define CLOSE_SOCK close
+#define SLEEP_US(x) usleep(x)
+#endif
+
 char nicname[1024] = {0};
+
+/* 取 UDP 目的端口（网络字节序）。各平台 udphdr 定义不同，这里统一处理 */
+static unsigned short udp_dport_of(const u_char *pkt)
+{
+#if defined(_WIN32)
+    struct my_udphdr
+    {
+        unsigned short sport;
+        unsigned short dport;
+        unsigned short len;
+        unsigned short sum;
+    };
+    const my_udphdr *u = (const my_udphdr *)(pkt + 14 + 20);
+    return u->dport;
+#else
+    const struct udphdr *u = (const struct udphdr *)(pkt + 14 + 20);
+#if defined(__APPLE__)
+    return u->uh_dport;
+#else
+    return u->dest;
+#endif
+#endif
+}
 
 int iptvscan(unsigned int ip)
 {
@@ -40,7 +76,7 @@ int iptvscan(unsigned int ip)
     err = setsockopt(s, IPPROTO_IP, IP_ADD_MEMBERSHIP, (const char *)&mreq, sizeof(mreq));
     if (err < 0)
     {
-        close(s);
+        CLOSE_SOCK(s);
         return -1;
     }
 
@@ -48,41 +84,35 @@ int iptvscan(unsigned int ip)
     if (!device)
     {
         cout << "error: pcap_open_live():" << errBuf << endl;
-        close(s);
+        CLOSE_SOCK(s);
         return -1;
     }
-
-    /* 需要时放在这里，不能写在函数外面
-    pcap_setnonblock(device, 1, errBuf);
-    pcap_set_immediate_mode(device, 1);
-    */
 
     char strfilter[64] = "udp and host ";
     char *strip = strfilter + strlen("udp and host ");
     inet_ntop(AF_INET, &ip, strip, 16);
 
     struct bpf_program filter;
-    if (pcap_compile(device, &filter, strfilter, 1, 0) == 0)
+if (pcap_compile(device, &filter, strfilter, 1, 0) == 0)
     {
         pcap_setfilter(device, &filter);
         pcap_freecode(&filter);
     }
 
-    usleep(150000);
+    SLEEP_US(150000);
 
     struct pcap_pkthdr packet;
     const u_char *pktStr = pcap_next(device, &packet);
     if (pktStr)
     {
-        struct udphdr *udphdr = (struct udphdr *)(pktStr + 14 + 20);
-        printf("#EXTINF:-1,%s:%d\nrtp://%s:%d\n",
-               strip, ntohs(udphdr->dest), strip, ntohs(udphdr->dest));
+        unsigned short dport = ntohs(udp_dport_of(pktStr));
+        printf("#EXTINF:-1,%s:%d\nrtp://%s:%d\n", strip, dport, strip, dport);
     }
     pcap_close(device);
 
-    err = setsockopt(s, IPPROTO_IP, IP_DROP_MEMBERSHIP, (const char *)&mreq, sizeof(mreq));
-    close(s);
-    return err < 0 ? -1 : 0;
+    setsockopt(s, IPPROTO_IP, IP_DROP_MEMBERSHIP, (const char *)&mreq, sizeof(mreq));
+    CLOSE_SOCK(s);
+    return 0;
 }
 
 int main(int argc, char *argv[])
@@ -90,13 +120,25 @@ int main(int argc, char *argv[])
     pcap_if_t *alldevs;
     int i = 0;
     char errbuf[PCAP_ERRBUF_SIZE] = {0};
-    int inum;
+    int inum = 0;
+
+#ifdef _WIN32
+    WSADATA wsa;
+    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0)
+    {
+        printf("WSAStartup failed\n");
+        return -1;
+    }
+#endif
 
     if (argc != 3)
     {
         cout << "usage:" << endl
              << "\t" << argv[0] << " \"start of ip\" \"end of ip\" " << endl;
         cout << "\t eg.. " << argv[0] << " 239.3.1.1 239.3.1.254" << endl;
+#ifdef _WIN32
+        WSACleanup();
+#endif
         return -1;
     }
 
@@ -155,5 +197,9 @@ int main(int argc, char *argv[])
     {
         iptvscan(ip);
     }
+
+#ifdef _WIN32
+    WSACleanup();
+#endif
     return 0;
 }
