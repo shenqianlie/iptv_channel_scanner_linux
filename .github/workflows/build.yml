@@ -1,4 +1,4 @@
-name: Build HS8145X6 iptvscanner MUSL STATIC vfpv3-d16
+name: Build HS8145X6 iptvscanner (g++ / Cortex-A9 / static)
 
 on:
   push:
@@ -15,73 +15,119 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Install Zig
+      - name: Install armhf + armel toolchains
         run: |
-          wget https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz
-          tar -xf zig-linux-x86_64-0.13.0.tar.xz
-          mv zig-linux-x86_64-0.13.0 /opt/zig
-          echo "/opt/zig" >> $GITHUB_PATH
-          zig version
+          sudo apt-get update
+          sudo apt-get install -y \
+            g++-arm-linux-gnueabihf \
+            g++-arm-linux-gnueabi \
+            binutils-arm-linux-gnueabihf \
+            flex bison wget
+          arm-linux-gnueabihf-g++ --version | head -1
+          arm-linux-gnueabi-g++ --version | head -1
 
-      - name: Download libpcap 1.10.4
+      - name: Fetch libpcap 1.10.4 source
         run: |
-          wget https://www.tcpdump.org/release/libpcap-1.10.4.tar.gz
+          wget -q https://www.tcpdump.org/release/libpcap-1.10.4.tar.gz
           tar -zxf libpcap-1.10.4.tar.gz
-          cd libpcap-1.10.4
+
+      - name: Build libpcap static (hard-float, vfpv3-d16)
+        run: |
+          cp -a libpcap-1.10.4 libpcap-hf
+          cd libpcap-hf
           ./configure \
-            --host=arm-linux-musleabihf \
+            --host=arm-linux-gnueabihf \
             --build=x86_64-pc-linux-gnu \
             --disable-shared \
-            --enable-static \
             --disable-usb \
             --disable-bluetooth \
             --disable-netmap \
             --disable-dbus \
             --disable-rdma \
             --without-libnl \
-            --prefix=${PWD}/install \
-            CC="zig cc -target arm-linux-musleabihf -mcpu=cortex-a9+vfpv3-d16"
+            --prefix=$PWD/install \
+            CC=arm-linux-gnueabihf-gcc \
+            CFLAGS="-O2 -mcpu=cortex-a9 -mfpu=vfpv3-d16 -mfloat-abi=hard"
           make -j$(nproc)
           make install
-          ls -la install/lib/
-          test -f install/lib/libpcap.a || exit 1
-          cd ..
-          ls -la
+          test -f install/lib/libpcap.a
 
-      - name: Compile main.cpp -> iptvscanner
+      - name: Build libpcap static (soft-float, armv7-a)
         run: |
-          ls -la
-          test -f main.cpp || exit 1
-          zig c++ \
-            -target arm-linux-musleabihf \
-            -mcpu=cortex-a9+vfpv3-d16 \
-            -O2 -std=c++17 \
-            -I./libpcap-1.10.4/install/include \
-            -L./libpcap-1.10.4/install/lib \
-            main.cpp -o iptvscanner \
-            -lpcap -lpthread -lm -static
-          ls -la
-          test -f iptvscanner || { echo ">>>> 编译成功但是没有生成 iptvscanner !"; exit 1; }
-          file iptvscanner
+          cp -a libpcap-1.10.4 libpcap-soft
+          cd libpcap-soft
+          ./configure \
+            --host=arm-linux-gnueabi \
+            --build=x86_64-pc-linux-gnu \
+            --disable-shared \
+            --disable-usb \
+            --disable-bluetooth \
+            --disable-netmap \
+            --disable-dbus \
+            --disable-rdma \
+            --without-libnl \
+            --prefix=$PWD/install \
+            CC=arm-linux-gnueabi-gcc \
+            CFLAGS="-O2 -march=armv7-a -mfloat-abi=soft"
+          make -j$(nproc)
+          make install
+          test -f install/lib/libpcap.a
 
-      - name: Upload artifact
+      - name: Compile iptvscanner (两个版本一起产出)
+        run: |
+          # 1) 硬浮点版：vfpv3-d16 + hard，标准 OpenWrt / 华为 armhf 固件
+          arm-linux-gnueabihf-g++ \
+            -mcpu=cortex-a9 \
+            -mfpu=vfpv3-d16 \
+            -mfloat-abi=hard \
+            -O2 -std=c++17 \
+            -I./libpcap-hf/install/include \
+            -L./libpcap-hf/install/lib \
+            iptvscanner.cpp -o iptvscanner_hf \
+            -lpcap -lpthread -lm -static
+
+          # 2) 软浮点版：纯整数代码，任何 ARMv7 设备都能跑（兜底）
+          arm-linux-gnueabi-g++ \
+            -march=armv7-a \
+            -mfloat-abi=soft \
+            -O2 -std=c++17 \
+            -I./libpcap-soft/install/include \
+            -L./libpcap-soft/install/lib \
+            iptvscanner.cpp -o iptvscanner_soft \
+            -lpcap -lpthread -lm -static
+
+          ls -lh iptvscanner_hf iptvscanner_soft
+          file iptvscanner_hf iptvscanner_soft
+
+          # 必须是真的静态链接，否则直接判失败，杜绝 not found
+          file iptvscanner_hf | grep -q "statically linked" || { echo "iptvscanner_hf 不是静态链接!"; exit 1; }
+          file iptvscanner_soft | grep -q "statically linked" || { echo "iptvscanner_soft 不是静态链接!"; exit 1; }
+
+          arm-linux-gnueabihf-readelf -A iptvscanner_hf | grep -E "CPU_arch|FP_arch|VFP_args"
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: iptvscanner-musl-static
-          path: iptvscanner
+          name: iptvscanner-armv7
+          path: |
+            iptvscanner_hf
+            iptvscanner_soft
 
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            iptvscanner
+            iptvscanner_hf
+            iptvscanner_soft
           fail_on_unmatched_files: true
           name: Release ${{ github.ref_name }}
           body: |
-            iptvscanner for HS8145X6
-            ✅ arm-linux-musleabihf
-            ✅ cortex-a9 + vfpv3-d16 (OpenWrt标准)
-            ✅ Fully static, no libc dependency
+            iptvscanner for HS8145X6 (Cortex-A9, ARMv7)
+
+            - iptvscanner_hf : vfpv3-d16 硬浮点，标准 OpenWrt 固件用这个
+            - iptvscanner_soft : 软浮点纯整数，若上面那个报 Illegal instruction 用这个
+
+            两个都是 fully static，不依赖路由器任何 so。
           draft: false
           prerelease: false
