@@ -1,4 +1,4 @@
-name: Build HS8145X6 iptvscanner (Cortex-A9 armv7hf + libpcap static)
+name: Build HS8145X6 iptvscanner (Cortex-A9 armv7hf, NO NEON)
 
 on:
   push:
@@ -46,19 +46,19 @@ jobs:
           cd ..
           ls -la
 
-      - name: Compile main.cpp -> iptvscanner
+      - name: Compile main.cpp -> iptvscanner (vfpv3, no neon)
         run: |
           ls -la
           test -f main.cpp || exit 1
           arm-linux-gnueabihf-g++ \
             -mcpu=cortex-a9 \
-            -mfpu=neon-vfpv3 \
+            -mfpu=vfpv3 \
             -mfloat-abi=hard \
             -O2 -std=c++17 \
             -I./libpcap-1.10.4/install/include \
             -L./libpcap-1.10.4/install/lib \
             main.cpp -o iptvscanner \
-            -lpcap -lpthread -lm -static
+            -lpcap -lpthread -lm
           ls -la
           test -f iptvscanner || { echo ">>>> 编译成功但是没有生成 iptvscanner !"; exit 1; }
 
@@ -77,6 +77,8 @@ jobs:
           fail_on_unmatched_files: true
           name: Release ${{ github.ref_name }}
           body: |
-            iptvscanner for HS8145X6 (Cortex-A9 armv7hf static)
+            iptvscanner for HS8145X6
+            Cortex-A9, vfpv3 (NO NEON)
+            Dynamic link (depends on libpcap on OpenWrt)
           draft: false
           prerelease: false
