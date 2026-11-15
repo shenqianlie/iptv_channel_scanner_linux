@@ -20,13 +20,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: install-toolchain
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends g++-arm-linux-gnueabi g++-aarch64-linux-gnu flex bison wget
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends g++-arm-linux-gnueabi g++-aarch64-linux-gnu g++-mingw-w64-x86-64 flex bison wget unzip
       - name: build
-        run: '[ -f build.sh ] || { echo "repo root missing build.sh"; ls -la; exit 1; }; TARGETS="armv7 x86_64 a55" bash build.sh'
+        run: '[ -f build.sh ] || { echo "repo root missing build.sh"; ls -la; exit 1; }; TARGETS="armv7 aarch64 win" bash build.sh'
       - uses: actions/upload-artifact@v4
         with:
           name: arm-x86
-          path: iptvscanner-*
+          path: iptvscanner*
 
   build-mips:
     runs-on: ubuntu-22.04
@@ -39,7 +39,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: mips
-          path: iptvscanner-*
+          path: iptvscanner*
 
   release:
     needs: [ build-arm-x86, build-mips ]
@@ -59,5 +59,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
-          files: dist/iptvscanner-*
+          files: dist/iptvscanner*
           fail_on_unmatched_files: true
