@@ -27,6 +27,7 @@ jobs:
             -mfloat-abi=hard \
             -O2 -std=c++17 -static \
             -lpcap \
+            -g \
             main.cpp -o hs8145x6_app
 
       - name: Upload artifact
