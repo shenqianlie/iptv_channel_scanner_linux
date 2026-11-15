@@ -3,13 +3,10 @@ name: Build HS8145X6 iptvscanner (Cortex-A9 armv7hf + libpcap static)
 on:
   push:
     branches: [ main ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
-  # 👇 tag触发放在这里（新版actions推荐写法）
-  push:
-    tags:
-      - 'v*'
 
 jobs:
   build:
