@@ -1,4 +1,4 @@
-name: Build HS8145X6 iptvscanner STATIC (musl safe)
+name: Build HS8145X6 iptvscanner MUSL STATIC vfpv3-d16
 
 on:
   push:
@@ -15,19 +15,21 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Install cross compiler & build tools
+      - name: Install Zig
         run: |
-          sudo apt update
-          sudo apt install -y g++-arm-linux-gnueabihf flex bison wget tar binutils-arm-linux-gnueabihf
-          ls -la
+          wget https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz
+          tar -xf zig-linux-x86_64-0.13.0.tar.xz
+          mv zig-linux-x86_64-0.13.0 /opt/zig
+          echo "/opt/zig" >> $GITHUB_PATH
+          zig version
 
-      - name: Download & build libpcap 1.10.4 static
+      - name: Download libpcap 1.10.4
         run: |
           wget https://www.tcpdump.org/release/libpcap-1.10.4.tar.gz
           tar -zxf libpcap-1.10.4.tar.gz
           cd libpcap-1.10.4
           ./configure \
-            --host=arm-linux-gnueabihf \
+            --host=arm-linux-musleabihf \
             --build=x86_64-pc-linux-gnu \
             --disable-shared \
             --enable-static \
@@ -38,7 +40,7 @@ jobs:
             --disable-rdma \
             --without-libnl \
             --prefix=${PWD}/install \
-            CC=arm-linux-gnueabihf-gcc
+            CC="zig cc -target arm-linux-musleabihf -mcpu=cortex-a9+vfpv3-d16"
           make -j$(nproc)
           make install
           ls -la install/lib/
@@ -46,14 +48,13 @@ jobs:
           cd ..
           ls -la
 
-      - name: Compile main.cpp -> iptvscanner FULL STATIC
+      - name: Compile main.cpp -> iptvscanner
         run: |
           ls -la
           test -f main.cpp || exit 1
-          arm-linux-gnueabihf-g++ \
-            -mcpu=cortex-a9 \
-            -mfpu=vfpv3 \
-            -mfloat-abi=hard \
+          zig c++ \
+            -target arm-linux-musleabihf \
+            -mcpu=cortex-a9+vfpv3-d16 \
             -O2 -std=c++17 \
             -I./libpcap-1.10.4/install/include \
             -L./libpcap-1.10.4/install/lib \
@@ -61,14 +62,12 @@ jobs:
             -lpcap -lpthread -lm -static
           ls -la
           test -f iptvscanner || { echo ">>>> 编译成功但是没有生成 iptvscanner !"; exit 1; }
-          # 检查文件类型，用本机file
           file iptvscanner
-          arm-linux-gnueabihf-readelf -l iptvscanner || true
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: iptvscanner-static
+          name: iptvscanner-musl-static
           path: iptvscanner
 
       - name: Create Release
@@ -81,8 +80,8 @@ jobs:
           name: Release ${{ github.ref_name }}
           body: |
             iptvscanner for HS8145X6
-            Cortex-A9, vfpv3 (NO NEON)
-            ✅ Fully static build (glibc-static)
-            ✅ No dependency on router libpcap
+            ✅ arm-linux-musleabihf
+            ✅ cortex-a9 + vfpv3-d16 (OpenWrt标准)
+            ✅ Fully static, no libc dependency
           draft: false
           prerelease: false
