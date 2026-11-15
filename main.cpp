@@ -16,18 +16,12 @@
 #include <pcap.h>
 #include <netinet/ip.h>
 #include <netinet/udp.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
 #include <iostream>
 using namespace std;
 
-pcap_setnonblock(device, 1, errBuf);
-pcap_set_immediate_mode(device, 1);
-
 char nicname[1024] = {0};
-int iptvscan(unsigned int ip)
 
+int iptvscan(unsigned int ip)
 {
     char errBuf[PCAP_ERRBUF_SIZE];
     int s; /*套接字文件描述符*/
@@ -46,17 +40,22 @@ int iptvscan(unsigned int ip)
     err = setsockopt(s, IPPROTO_IP, IP_ADD_MEMBERSHIP, (const char *)&mreq, sizeof(mreq));
     if (err < 0)
     {
+        close(s);
         return -1;
     }
 
-    pcap_t *device = pcap_open_live(nicname, 65535, 1, 1, errBuf); //1ms超时，下边会留出时间填充数据包
-
+    pcap_t *device = pcap_open_live(nicname, 65535, 1, 1, errBuf); //1ms超时
     if (!device)
     {
         cout << "error: pcap_open_live():" << errBuf << endl;
         close(s);
         return -1;
     }
+
+    // 如果你确实需要这两个功能，挪到这里（open成功之后）
+    // pcap_setnonblock(device, 1, errBuf);
+    // pcap_set_immediate_mode(device, 1);
+
     char strfilter[64] = "udp and host ";
     char *strip = strfilter + strlen("udp and host ");
     inet_ntop(AF_INET, &ip, strip, 16);
@@ -75,7 +74,7 @@ int iptvscan(unsigned int ip)
 #ifdef __linux
         printf("#EXTINF:-1,%s:%d\nrtp://%s:%d\n", strip, ntohs(udphdr->dest), strip, ntohs(udphdr->dest));
 #elif __APPLE__
-	printf("#EXTINF:-1,%s:%d\nrtp://%s:%d\n", strip, ntohs(udphdr->uh_dport), strip, ntohs(udphdr->uh_dport));
+        printf("#EXTINF:-1,%s:%d\nrtp://%s:%d\n", strip, ntohs(udphdr->uh_dport), strip, ntohs(udphdr->uh_dport));
 #endif
     }
     pcap_close(device);
@@ -92,9 +91,7 @@ int iptvscan(unsigned int ip)
 
 int main(int argc, char *argv[])
 {
-
     pcap_if_t *alldevs;
-
     int i = 0;
     char errbuf[PCAP_ERRBUF_SIZE];
     int inum;
@@ -124,7 +121,7 @@ int main(int argc, char *argv[])
 
     if (i == 0)
     {
-        printf("\nNo interfaces found! Make sure WinPcap is installed.\n");
+        printf("\nNo interfaces found!\n");
         return -1;
     }
 
@@ -153,4 +150,5 @@ int main(int argc, char *argv[])
     {
         iptvscan(ip);
     }
+    return 0;
 }
